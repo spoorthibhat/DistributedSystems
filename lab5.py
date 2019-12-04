@@ -8,22 +8,24 @@ import time
 VERSION = 70015  # As of https://bitcoin.org/en/developer-reference#protocol-versions most recent version is 70015
 BLOCK_HEIGHT = 606609  # Latest from https://www.blockchain.com/explorer
 MAGIC_VALUE = 'f9beb4d9'  # https://en.bitcoin.it/wiki/Protocol_documentation#Common_structures
+BUF_SZ = 4096
 
-def get_version_message():
+
+def get_version_message(recv_addr):
     version = int32_t(VERSION)
     services = uint64_t(0)
     timestamp = struct.pack("q", int(time.time()))
     addr_recv_services = uint64_t(0)
-    add_recv_ip = struct.pack(">16s", bytes('', 'utf-8'))  # FIXME
+    add_recv_ip = struct.pack(">16s", bytes(recv_addr[0], 'utf-8'))
 
     # The receiver's port (Bitcoin default is 8333)
-    add_recv_port = struct.pack(">h", 8333)
+    add_recv_port = struct.pack(">H", 8333)
 
     addr_trans_services = uint64_t(0)
     add_trans_ip = struct.pack(">16s", bytes("127.0.0.1", 'utf-8'))
-    add_trans_port = struct.pack(">h", 8333)
+    add_trans_port = struct.pack(">H", 8333)
 
-    nonce = uint64_t(random.getrandbits(64))
+    nonce =  uint64_t(random.getrandbits(64))
     user_agent_bytes = struct.pack("B", 0)
     start_height = struct.pack('i', BLOCK_HEIGHT)
     relay = struct.pack('?', 0)
@@ -32,12 +34,52 @@ def get_version_message():
 
     magic = bytes.fromhex(MAGIC_VALUE)  # use main network
     command_name = b"version" + 5 * b"\00"
-    length = struct.pack("I", len(payload))
-    checksum = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
+    length = struct.pack("i", len(payload))
+    checksum = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[0:4]
 
     message = magic + command_name + length + checksum + payload
     return message
 
+
+def connect_to_peer(filename):
+    peers = []
+    with open(filename) as node_file:
+        cnt = 1
+        line = node_file.readline()
+        peers.append(line.split(':'))
+        while cnt < 512:
+            line = node_file.readline()
+            peers.append(line.split(':'))
+            cnt += 1
+
+    peer_index = connect(peers, 0)
+    #while peer_index < 500:
+    print('Peer index: ', peer_index)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as skt:
+            skt.connect((peers[peer_index][0], 8333))
+            skt.sendall(get_version_message(peers[peer_index][0]))
+            while 1:
+                msg = skt.recv(2 ** 10)
+                if not msg:
+                    print("done")
+                    exit()
+                else:
+                    print(msg)
+            #data = skt.recv(BUF_SZ)
+            #print('Received:', data)
+    except Exception as err:
+        print(err)
+
+
+def connect(peers, index):
+    try:
+        print('Trying to connect to {}'.format(peers[index]))
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as soc:
+            e = soc.connect((peers[index][0], int(peers[index][1])))
+            return index
+    except Exception as err:
+        return connect(index + 1)
 
 
 def compactsize_t(n):
@@ -104,7 +146,7 @@ def unmarshal_uint(b):
     return int.from_bytes(b, byteorder='little', signed=False)
 
 
-def print_message(msg, text=None):
+'''def print_message(msg, text=None):
     """
     Report the contents of the given bitcoin message
     :param msg: bitcoin message including header
@@ -118,6 +160,7 @@ def print_message(msg, text=None):
         print_version_msg(payload)
     # FIXME print out the payloads of other types of messages, too
     return command
+    '''
 
 
 def print_version_msg(b):
@@ -185,3 +228,6 @@ def print_header(header, expected_cksum=None):
     print('{}{:32} payload size: {}'.format(prefix, payload_size.hex(), psz))
     print('{}{:32} checksum {}'.format(prefix, cksum.hex(), verified))
     return command
+
+if __name__ == '__main__':
+    connect_to_peer('nodes_main.txt')
