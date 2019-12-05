@@ -1,5 +1,4 @@
 import hashlib
-import pickle
 import random
 import socket
 import struct
@@ -9,6 +8,7 @@ VERSION = 70015  # As of https://bitcoin.org/en/developer-reference#protocol-ver
 BLOCK_HEIGHT = 606609  # Latest from https://www.blockchain.com/explorer
 MAGIC_VALUE = 'f9beb4d9'  # https://en.bitcoin.it/wiki/Protocol_documentation#Common_structures
 BUF_SZ = 4096
+HDR_SZ = 24
 
 
 def get_version_message(recv_addr):
@@ -32,13 +32,21 @@ def get_version_message(recv_addr):
     payload = version + services + timestamp + addr_recv_services + add_recv_ip + add_recv_port + \
               addr_trans_services + add_trans_ip + add_trans_port + nonce + user_agent_bytes + start_height + relay
 
+    header = build_header('version', payload)
+    message = header + payload
+
+    print_message(message, 'Sending')
+    return message
+
+
+def build_header(command, payload):
     magic = bytes.fromhex(MAGIC_VALUE)  # use main network
-    command_name = b"version" + 5 * b"\00"
-    length = struct.pack("i", len(payload))
+    padding_count = 12 - len(command.encode())
+    command_name = command.encode() + padding_count * b"\00"
+    length =  uint32_t(len(payload))
     checksum = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[0:4]
 
-    message = magic + command_name + length + checksum + payload
-    return message
+    return magic + command_name + length + checksum
 
 
 def connect_to_peer(filename):
@@ -53,21 +61,33 @@ def connect_to_peer(filename):
             cnt += 1
 
     peer_index = connect(peers, 0)
-    #while peer_index < 500:
-    print('Peer index: ', peer_index)
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as skt:
-            skt.connect((peers[peer_index][0], 8333))
-            skt.sendall(get_version_message(peers[peer_index][0]))
-            while 1:
-                msg = skt.recv(2 ** 10)
-                if not msg:
-                    print("done")
-                    exit()
-                else:
-                    print(msg)
-            #data = skt.recv(BUF_SZ)
-            #print('Received:', data)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as version_soc:
+            version_soc.connect((peers[peer_index][0], 8333))
+            version_soc.sendall(get_version_message(peers[peer_index][0]))
+            count = 0
+            message = b''
+            while count < 2:
+                msg = version_soc.recv(2 ** 10)
+                message += msg
+                count += 1
+
+        user_agent_size, uasz = unmarshal_compactsize(message[104:])
+        i = 104 + len(user_agent_size) + uasz + 4 + 1
+        print_message(message[0:i],'Received')
+        extra = message[i:]
+        print_message(extra, 'Received')
+
+        verack_header = build_header('verack', b'')
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as verack_soc:
+            verack_soc.connect((peers[peer_index][0], 8333))
+            print_message(verack_header, 'Sending')
+            verack_soc.sendall(verack_header)
+            recv_msg = verack_soc.recv(2 ** 10)
+            while recv_msg:
+                print_header(recv_msg)
+
     except Exception as err:
         print(err)
 
@@ -146,7 +166,11 @@ def unmarshal_uint(b):
     return int.from_bytes(b, byteorder='little', signed=False)
 
 
-'''def print_message(msg, text=None):
+def checksum(payload):
+    return hashlib.sha256(hashlib.sha256(payload).digest()).digest()[0:4]
+
+
+def print_message(msg, text=None):
     """
     Report the contents of the given bitcoin message
     :param msg: bitcoin message including header
@@ -160,7 +184,6 @@ def unmarshal_uint(b):
         print_version_msg(payload)
     # FIXME print out the payloads of other types of messages, too
     return command
-    '''
 
 
 def print_version_msg(b):
