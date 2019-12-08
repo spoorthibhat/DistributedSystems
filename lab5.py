@@ -1,3 +1,11 @@
+"""
+CPSC 5520, Seattle University
+This is the assignment submission for Lab5 - Bitcoin.
+The program connects to a peer in the bitcoin network by sending version and verack messages.
+:Authors: Spoorthi Bhat
+:Version: f19-02
+"""
+
 import hashlib
 import random
 import socket
@@ -7,11 +15,16 @@ import time
 VERSION = 70015  # As of https://bitcoin.org/en/developer-reference#protocol-versions most recent version is 70015
 BLOCK_HEIGHT = 606609  # Latest from https://www.blockchain.com/explorer
 MAGIC_VALUE = 'f9beb4d9'  # https://en.bitcoin.it/wiki/Protocol_documentation#Common_structures
-BUF_SZ = 4096
-HDR_SZ = 24
+BUF_SZ = 4096  # Buffer size
+HDR_SZ = 24  # header size
 
 
 def get_version_message(recv_addr):
+    """
+    Frames the complete version message including the header
+    :param recv_addr: Receiving peer address
+    :return: Version message
+    """
     version = int32_t(VERSION)
     services = uint64_t(0)
     timestamp = struct.pack("q", int(time.time()))
@@ -25,7 +38,7 @@ def get_version_message(recv_addr):
     add_trans_ip = struct.pack(">16s", bytes("127.0.0.1", 'utf-8'))
     add_trans_port = struct.pack(">H", 8333)
 
-    nonce =  uint64_t(random.getrandbits(64))
+    nonce = uint64_t(random.getrandbits(64))
     user_agent_bytes = struct.pack("B", 0)
     start_height = struct.pack('i', BLOCK_HEIGHT)
     relay = struct.pack('?', 0)
@@ -40,18 +53,31 @@ def get_version_message(recv_addr):
 
 
 def build_header(command, payload):
+    """
+    Builds the header message from the command name and the payload input provided
+    :param command: Command name
+    :param payload: Payload in bytes
+    :return: Header message
+    """
     magic = bytes.fromhex(MAGIC_VALUE)  # use main network
     padding_count = 12 - len(command.encode())
     command_name = command.encode() + padding_count * b"\00"
-    length =  uint32_t(len(payload))
+    length = uint32_t(len(payload))
     checksum = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[0:4]
 
     return magic + command_name + length + checksum
 
 
-def connect_to_peer(filename):
+def connect_to_peer():
+    """
+    Connects to an active peer in the bitcoin network
+    Note: For now it connects to peer at address '1.255.226.167', if there
+    is any problem with that connection during execution, please UNCOMMENT from line 79-88, UNCOMMENT line 90 and
+    COMMENT line 89 and line 91.
+    """
     peers = []
-    with open(filename) as node_file:
+    '''
+    with open('nodes_main.txt') as node_file:
         cnt = 1
         line = node_file.readline()
         peers.append(line.split(':'))
@@ -59,8 +85,10 @@ def connect_to_peer(filename):
             line = node_file.readline()
             peers.append(line.split(':'))
             cnt += 1
-
-    peer_index = connect(peers, 0)
+            '''
+    peers.append(('1.255.226.167', 8333))
+    # peer_index = connect(peers, 0)
+    peer_index = 0
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as version_soc:
             version_soc.connect((peers[peer_index][0], 8333))
@@ -74,7 +102,7 @@ def connect_to_peer(filename):
 
         user_agent_size, uasz = unmarshal_compactsize(message[104:])
         i = 104 + len(user_agent_size) + uasz + 4 + 1
-        print_message(message[0:i],'Received')
+        print_message(message[0:i], 'Received')
         extra = message[i:]
         print_message(extra, 'Received')
 
@@ -93,6 +121,13 @@ def connect_to_peer(filename):
 
 
 def connect(peers, index):
+    """
+    Tries to connect with the peers, returns the peer index.
+    Keeps trying to connect until a connection can be established. i.e., an active peer is found
+    :param peers: Array of peer addresses
+    :param index: Index in the peers array
+    :return: The index of successfully connected peer
+    """
     try:
         print('Trying to connect to {}'.format(peers[index]))
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as soc:
@@ -103,6 +138,11 @@ def connect(peers, index):
 
 
 def compactsize_t(n):
+    """
+    Converts to compact size integer type
+    :param n: Input number to be converted
+    :return: Compact size integer type of n
+    """
     if n < 252:
         return uint8_t(n)
     if n < 0xffff:
@@ -113,6 +153,10 @@ def compactsize_t(n):
 
 
 def unmarshal_compactsize(b):
+    """
+    Unmarshalls compact size integer
+    :param b: The byte array to be unmarshalled
+    """
     key = b[0]
     if key == 0xff:
         return b[0:9], unmarshal_uint(b[1:9])
@@ -121,52 +165,67 @@ def unmarshal_compactsize(b):
     return b[0:1], unmarshal_uint(b[0:1])
 
 
-def bool_t(flag):
-    return uint8_t(1 if flag else 0)
-
-
 def ipv6_from_ipv4(ipv4_str):
+    """
+    Converts to ipv6 from ipv4 representation
+    :param ipv4_str: Ip in ipv4 format
+    :return: ipv6 string
+    """
     pchIPv4 = bytearray([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff])
     return pchIPv4 + bytearray((int(x) for x in ipv4_str.split('.')))
 
 
 def ipv6_to_ipv4(ipv6):
+    """
+    Converts to ipv4 from ipv6 representation
+    :param ipv6: ipv6 string
+    :return: ipv4 string
+    """
     return '.'.join([str(b) for b in ipv6[12:]])
 
 
 def uint8_t(n):
+    """Converts n to unsigned int8_t format"""
     return int(n).to_bytes(1, byteorder='little', signed=False)
 
 
 def uint16_t(n):
+    """Converts n to unsigned int16_t format"""
     return int(n).to_bytes(2, byteorder='little', signed=False)
 
 
 def int32_t(n):
+    """Converts n to int32_t format"""
     return int(n).to_bytes(4, byteorder='little', signed=True)
 
 
 def uint32_t(n):
+    """Converts n to unsigned int32_t format"""
     return int(n).to_bytes(4, byteorder='little', signed=False)
 
 
 def int64_t(n):
+    """Converts to int64_t format"""
     return int(n).to_bytes(8, byteorder='little', signed=True)
 
 
 def uint64_t(n):
+    """Converts to unsigned int64_t format"""
     return int(n).to_bytes(8, byteorder='little', signed=False)
 
 
 def unmarshal_int(b):
+    """Unmarshals byte array to int"""
     return int.from_bytes(b, byteorder='little', signed=True)
 
 
 def unmarshal_uint(b):
+    """Unmarshals to unsigned int"""
     return int.from_bytes(b, byteorder='little', signed=False)
 
 
 def checksum(payload):
+    """Calculates the checksum from the input payload byte string"""
     return hashlib.sha256(hashlib.sha256(payload).digest()).digest()[0:4]
 
 
@@ -252,5 +311,7 @@ def print_header(header, expected_cksum=None):
     print('{}{:32} checksum {}'.format(prefix, cksum.hex(), verified))
     return command
 
+
 if __name__ == '__main__':
-    connect_to_peer('nodes_main.txt')
+
+    connect_to_peer()
